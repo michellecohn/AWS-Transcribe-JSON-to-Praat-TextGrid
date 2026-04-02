@@ -182,19 +182,10 @@ for(ifile in 1:nfiles){
   df_to_tier(word_df, textgrid_pathandfilename, tier_name = "Word", overwrite = TRUE) 
   
   # Extract just the language
- # word_df = subset(transcription, type == "pronunciation")
   language_df = subset(transcription, language != "")
   language_df$content = language_df$language
   language_df = language_df[,c(4, 5, 7)]
-  
   df_to_tier(language_df, textgrid_pathandfilename, tier_name = "Language", overwrite = TRUE) 
 
-  ### Add tier with confidence level 
-  transcript_to_df_CONTENT = curr_file_df[,c(5, 6, 19)]
-  transcript_to_df_CONTENT$content = transcript_to_df_CONTENT$Word_List
-  transcript_to_df_CONTENT = subset(transcript_to_df_CONTENT, content != "")
-  transcript_to_df_CONTENT = transcript_to_df_CONTENT[,c(1, 2, 4)]
-  df_to_tier(transcript_to_df_CONTENT, textgrid_pathandfilename, tier_name = "CorrectedWord", overwrite = TRUE)
-  
   
 }#endfor
