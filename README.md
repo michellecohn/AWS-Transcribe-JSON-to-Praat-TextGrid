@@ -5,6 +5,5 @@ This includes:
 * Silence (Between utterances)
 * Word level
 * Language
-* Confidence level (word-level)
 
 All as separate TextGrid tiers
