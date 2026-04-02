@@ -1,0 +1,200 @@
+#######################################################################################################################
+# JSON (AWS Transcribe) --> Praat TextGrid (Bilingual transcriptions)
+#
+# MC 8/8/2022; updated 12/3/2023
+#######################################################################################################################
+#######################################################################################################################
+library(rjson)
+library(phonfieldwork)
+
+#Loop over the .JSONS
+run_component = c(1:20)
+curr_dir =  "/Users/directory/"
+setwd(curr_dir)
+
+# Output dir
+outputdir= "/Users/directory/TextGrids/"
+
+file_list = list.files(pattern = ".*.json")
+nfiles = length(file_list)
+
+for(ifile in 1:nfiles){
+  current_file =  file_list[ifile]
+  result <- fromJSON(file = current_file)
+
+  ## result$results$items
+  ntranscriptions = length(result$results$items)
+  transcription = as.data.frame(matrix(data = NA, nrow = ntranscriptions))
+  transcription["index"] = NA
+  transcription["job_name"] = NA
+  transcription["time_start"] = NA
+  transcription["time_end"] = NA
+  transcription["type"] = NA
+  transcription["content"] = NA
+  transcription["confidence"] = NA
+  transcription["speaker"] = NA  
+  transcription["start"]= NA
+  transcription["language"]= NA
+  
+  ####### SCAN THROUGH THE TRANSCRIPT // CREATE 
+  for(iline in 1:ntranscriptions){
+    curr_job_name = result$jobName
+    curr_transcript_info = result$results$items[[iline]]
+    # SKIP IF NULL
+    if(!is.null(curr_transcript_info$start_time)){
+      curr_transcript_start = as.numeric(curr_transcript_info$start_time)
+    }
+    if(!is.null(curr_transcript_info$end_time)){
+      curr_transcript_end = as.numeric(curr_transcript_info$end_time)
+    }
+    curr_transcript_type = curr_transcript_info$type
+    curr_transcript_confidence = curr_transcript_info$alternatives[[1]]$confidence
+    curr_transcript_text = curr_transcript_info$alternatives[[1]]$content
+    curr_transcript_language = curr_transcript_info$language_code[[1]]
+    
+    transcription$job_name[iline] = curr_job_name
+    if(is.numeric(curr_transcript_start) == TRUE){
+      transcription$time_start[iline] = curr_transcript_start
+      transcription$time_end[iline] = curr_transcript_end
+    }#endif
+    
+    transcription$type[iline] = curr_transcript_type
+    transcription$confidence[iline] = curr_transcript_confidence
+    transcription$content[iline] = curr_transcript_text
+    transcription$language[iline] = curr_transcript_language
+    
+    
+    
+    #transcription$index[iline] = iline
+    
+  }#endfor
+  
+  
+  ####### Group based on pauses > 150 ms in duration. (ignore puntcutation)
+  non_punct_lines = which(transcription$type == "pronunciation")
+  n_lines = length(non_punct_lines)
+  n_lines = n_lines -1 
+  pause_counter = 0
+  for(iline2 in 1:n_lines){
+    curr_line = non_punct_lines[iline2]
+    next_line_index = non_punct_lines[iline2 + 1]
+    curr_end = transcription$time_end[curr_line]
+    next_start_time = transcription$time_start[next_line_index]
+    
+    difference = next_start_time - curr_end
+    
+    if(difference >= 0.150){
+      pause_counter = pause_counter + 1
+      print(pause_counter)
+      curr_pause = as.data.frame(matrix(data= NA, nrow = 1))
+      curr_pause["job_name"] = transcription$job_name[1]
+      curr_pause["time_start"] = curr_end
+      curr_pause["time_end"] = next_start_time
+      curr_pause["type"] = "pause"
+      curr_pause["content"] = "sil"
+      
+      curr_pause["V1"] = NA
+      curr_pause["index"] = NA
+      curr_pause["confidence"] = NA
+      curr_pause["speaker"] = NA
+      curr_pause["start"] = NA
+      curr_pause["language"] = NA
+      
+    }#endif
+  }#endfor
+  
+  transcription = transcription[order(transcription$time_start),]
+  
+  # Now go between the pauses to get the utterance info
+  pause_indices = which(transcription$type == "pause")
+  n_lines = length(pause_indices)
+  n_lines = n_lines -1 
+
+  for(iline3 in 1:n_lines){
+    utterance_end_index = pause_indices[iline3]
+    utterance_end_index = utterance_end_index - 1
+    if(iline3 == 1){
+      # start from the beginning
+      curr_utterance_indices = c(1:utterance_end_index)
+    }else{
+      # prior pause index
+      last_pause_index = pause_indices[(iline3-1)]
+      last_pause_index = last_pause_index + 1
+      curr_utterance_indices = c(last_pause_index:utterance_end_index)
+      
+    }#endif
+    
+    curr_utterance = paste0(transcription$content[curr_utterance_indices], collapse  = " ")
+    # Remove leading space before punctuation
+    curr_utterance = gsub(" \\.", ".", curr_utterance)
+    curr_utterance = gsub(" ,", ",", curr_utterance)
+    curr_utterance = gsub(" \\?", "?", curr_utterance)
+    curr_utterance = gsub(" \\!", "!", curr_utterance)
+    
+    # get start/end time of the uttereance
+    start = min(curr_utterance_indices)
+    end = max(curr_utterance_indices)
+    
+    curr_utterance_df = as.data.frame(matrix(data= NA, nrow = 1))
+    curr_utterance_df["job_name"] = transcription$job_name[1]
+    curr_utterance_df["time_start"] = transcription$time_start[start]
+    curr_utterance_df["time_end"] = transcription$time_start[end]
+    curr_utterance_df["type"] = "utterance"
+    curr_utterance_df["content"] = curr_utterance
+    
+    curr_utterance_df["V1"] = NA
+    curr_utterance_df["index"] = NA
+    curr_utterance_df["confidence"] = NA
+    curr_utterance_df["speaker"] = NA
+    curr_utterance_df["start"] = NA
+    curr_utterance_df["language"] = NA
+    
+    transcription = rbind.data.frame(transcription, curr_utterance_df)
+  }#endfor
+    
+    
+    
+  transcription = transcription[order(transcription$time_start),]
+  
+  ##### EXPORT TO PRAAT TEXTGRID
+  textgrid_filename = sprintf("%s.TextGrid", transcription$job_name[1])
+  
+  max_time = max(transcription$time_end)
+  create_empty_textgrid(max_time, tier_name = NULL,point_tier = NULL,
+                        outputdir,result_file_name = textgrid_filename) # initialize empty 
+  
+  textgrid_pathandfilename = sprintf("%s%s", outputdir, textgrid_filename)
+  
+  # Extract just the utterance level
+  utterance_df = subset(transcription, type == "utterance")
+  names(utterance_df)
+  utterance_df = utterance_df[,c(4, 5, 7)]
+  df_to_tier(utterance_df, textgrid_pathandfilename, tier_name = "Utterance", overwrite = TRUE) 
+  
+  # Extract just the silent level
+  silence_df = subset(transcription, type == "pause")
+  silence_df = silence_df[,c(4, 5, 7)]
+  df_to_tier(silence_df, textgrid_pathandfilename, tier_name = "Silence", overwrite = TRUE) 
+  
+  # Extract just the word level
+  word_df = subset(transcription, type == "pronunciation")
+  word_df = word_df[,c(4, 5, 7)]
+  df_to_tier(word_df, textgrid_pathandfilename, tier_name = "Word", overwrite = TRUE) 
+  
+  # Extract just the language
+ # word_df = subset(transcription, type == "pronunciation")
+  language_df = subset(transcription, language != "")
+  language_df$content = language_df$language
+  language_df = language_df[,c(4, 5, 7)]
+  
+  df_to_tier(language_df, textgrid_pathandfilename, tier_name = "Language", overwrite = TRUE) 
+
+  ### Add tier with confidence level 
+  transcript_to_df_CONTENT = curr_file_df[,c(5, 6, 19)]
+  transcript_to_df_CONTENT$content = transcript_to_df_CONTENT$Word_List
+  transcript_to_df_CONTENT = subset(transcript_to_df_CONTENT, content != "")
+  transcript_to_df_CONTENT = transcript_to_df_CONTENT[,c(1, 2, 4)]
+  df_to_tier(transcript_to_df_CONTENT, textgrid_pathandfilename, tier_name = "CorrectedWord", overwrite = TRUE)
+  
+  
+}#endfor
